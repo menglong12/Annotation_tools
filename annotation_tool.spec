@@ -3,24 +3,34 @@
 
 import sys
 import os
+import PyQt5 
+from pathlib import Path
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 
 block_cipher = None
+
+# ====================== 关键修改：获取PyQt5的platforms目录路径 ======================
+pyqt5_dir = Path(PyQt5.__file__).parent  # PyQt5包的根目录（如 .../site-packages/PyQt5）
+qt_plugins_dir = pyqt5_dir / "Qt5" / "plugins"  # Qt5/plugins目录
+platforms_dir = qt_plugins_dir / "platforms"  # platforms目录（包含qwindows.dll等）
+# =================================================================================
 
 # 收集 PyQt5 的数据文件
 pyqt5_datas = collect_data_files('PyQt5')
 pyqt5_binaries = collect_dynamic_libs('PyQt5')
 
 # 收集 Qt 平台插件
-qt_plugins = []
-for root, dirs, files in os.walk(sys.executable):
-    if 'PyQt5' in root and 'plugins' in root:
-        for file in files:
-            if file.endswith('.dll'):
-                src = os.path.join(root, file)
-                dst = os.path.join('PyQt5', 'Qt5', 'plugins', os.path.basename(root))
-                qt_plugins.append((src, dst))
-        break
+# qt_plugins = []
+# for root, dirs, files in os.walk(sys.executable):
+#    if 'PyQt5' in root and 'plugins' in root:
+#        for file in files:
+#            if file.endswith('.dll'):
+#                src = os.path.join(root, file)
+#                dst = os.path.join('PyQt5', 'Qt5', 'plugins', os.path.basename(root))
+#                qt_plugins.append((src, dst))
+#        break
+
+qt_plugin_datas = [(str(platforms_dir), "PyQt5/Qt5/plugins/platforms")]
 
 a = Analysis(
     ['main.py'],
@@ -32,7 +42,9 @@ a = Analysis(
         ('modes', 'modes'),
         ('core', 'core'),
         ('utils', 'utils'),
-    ] + pyqt5_datas,
+    ] 
+    + pyqt5_datas,
+    + qt_plugin_datas,
     hiddenimports=[
         'PyQt5.QtCore',
         'PyQt5.QtGui',
@@ -70,7 +82,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
