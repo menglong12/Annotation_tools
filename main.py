@@ -5,7 +5,7 @@ from pathlib import Path
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QLabel, QFileDialog,
     QVBoxLayout, QWidget, QPushButton, QHBoxLayout, QGridLayout,
-    QScrollArea, QMessageBox, QStatusBar, QStyle
+    QScrollArea, QMessageBox, QStatusBar, QStyle, QSystemTrayIcon, QMenu
 )
 from PyQt5.QtGui import QFont, QColor, QPalette, QIcon
 from PyQt5.QtCore import Qt, pyqtSignal, QSize
@@ -75,7 +75,33 @@ class ModeSelector(QMainWindow):
         super().__init__()
         self.setWindowTitle("小佩标注平台")
         self.setGeometry(100, 100, 1200, 800)
+        self.setWindowIcon(self.get_app_icon())
         self.setup_ui()
+        self.setup_tray()
+
+    def get_app_icon(self):
+        icon_paths = [
+            'icons/app_icon.ico',      # Windows 图标
+            'icons/app_icon.png',      # PNG 图标
+            'icons/logo.png',          # 通用 logo
+            os.path.join(os.path.dirname(__file__), 'icons', 'app_icon.ico'),
+            os.path.join(os.path.dirname(__file__), 'icons', 'logo.png'),
+        ]
+        
+        # 如果是打包后的程序，还需要检查 _MEIPASS 路径
+        if getattr(sys, 'frozen', False):
+            base_path = sys._MEIPASS
+            icon_paths.extend([
+                os.path.join(base_path, 'icons', 'app_icon.ico'),
+                os.path.join(base_path, 'icons', 'logo.png'),
+            ])
+        
+        for path in icon_paths:
+            if os.path.exists(path):
+                return QIcon(path)
+        
+        # 如果没有找到图标文件，返回空图标
+        return QIcon()
     
     def setup_ui(self):
         self.setStyleSheet("QMainWindow { background-color: #2D2D30; }")
@@ -123,6 +149,22 @@ class ModeSelector(QMainWindow):
         footer.setStyleSheet("color: #666666; font-size: 12px; padding: 10px;")
         layout.addWidget(footer)
     
+    def setup_tray(self):
+        """设置系统托盘图标"""
+        self.tray_icon = QSystemTrayIcon(self)
+        self.tray_icon.setIcon(self.get_app_icon())
+        
+        # 创建托盘菜单
+        tray_menu = QMenu()
+        show_action = tray_menu.addAction("显示窗口")
+        show_action.triggered.connect(self.show)
+        
+        quit_action = tray_menu.addAction("退出")
+        quit_action.triggered.connect(QApplication.quit)
+        
+        self.tray_icon.setContextMenu(tray_menu)
+        self.tray_icon.show()
+
     def select_mode(self, mode_key):
         config = get_mode_config(mode_key)
         if not config:
