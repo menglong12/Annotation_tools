@@ -1,0 +1,22 @@
+# .github/workflows/release.yml
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - run: pip install pyinstaller PyQt5 opencv-python numpy
+      - run: pyinstaller main.py --onefile --windowed --name=PetkitAnnotationTool
+      - uses: actions/upload-artifact@v3
+        with:
+          name: PetkitAnnotationTool-Windows
+          path: dist/PetkitAnnotationTool.exe
