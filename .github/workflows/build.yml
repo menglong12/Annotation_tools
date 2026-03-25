@@ -67,6 +67,7 @@ jobs:
           --add-data="modes;modes" `
           --add-data="core;core" `
           --add-data="utils;utils" `
+          --add-data="$env:pythonLocation\Lib\site-packages\PyQt5\Qt5\plugins\platforms;platforms" `
           --hidden-import=PyQt5.QtCore `
           --hidden-import=PyQt5.QtGui `
           --hidden-import=PyQt5.QtWidgets `
@@ -76,12 +77,17 @@ jobs:
           --hidden-import=imghdr `
           --exclude-module=tensorflow `
           --exclude-module=torch `
+          --collect-all=PyQt5 `
           main.py
         if ($LASTEXITCODE -ne 0) {
           Write-Error "PyInstaller build failed"
           exit 1
         }
     
+    # - name: Build with PyInstaller using spec
+    #   run: |
+    #     pyinstaller annotation_tool.spec
+
     - name: List dist directory
       run: |
         Get-ChildItem dist
