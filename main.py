@@ -503,14 +503,30 @@ def setup_theme(app):
     app.setPalette(palette)
 
 def main():
-    # 清除环境变量
-    for key in list(os.environ.keys()):
-        if 'QT_' in key:
-            del os.environ[key]
-    
-    from PyQt5.QtCore import QLibraryInfo
-    os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = QLibraryInfo.location(QLibraryInfo.PluginsPath)
-    os.environ['QT_QPA_PLATFORM'] = 'xcb'
+    # 根据操作系统设置 Qt 平台
+    if sys.platform == 'win32':
+        # Windows 使用 windows 平台
+        os.environ['QT_QPA_PLATFORM'] = 'windows'
+    elif sys.platform == 'darwin':
+        # macOS 使用 cocoa 平台
+        os.environ['QT_QPA_PLATFORM'] = 'cocoa'
+    else:
+        # Linux 使用 xcb 平台
+        from PyQt5.QtCore import QLibraryInfo
+        os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = QLibraryInfo.location(QLibraryInfo.PluginsPath)
+        os.environ['QT_QPA_PLATFORM'] = 'xcb'
+
+    # 设置 Qt 插件路径（Windows）
+    if sys.platform == 'win32':
+        # 尝试自动查找 PyQt5 插件路径
+        try:
+            import PyQt5
+            pyqt_path = os.path.dirname(PyQt5.__file__)
+            plugins_path = os.path.join(pyqt_path, 'Qt5', 'plugins')
+            if os.path.exists(plugins_path):
+                os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = plugins_path
+        except:
+            pass
     
     app = QApplication(sys.argv)
     setup_theme(app)
