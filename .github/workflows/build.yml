@@ -57,36 +57,36 @@ jobs:
           New-Item -ItemType Directory -Path icons
         }
     
-    - name: Build with PyInstaller
-      run: |
-        pyinstaller --name=${{ env.APP_NAME }} `
-          --windowed `
-          --onefile `
-          --add-data="icons;icons" `
-          --add-data="config;config" `
-          --add-data="modes;modes" `
-          --add-data="core;core" `
-          --add-data="utils;utils" `
-          --add-data="$env:pythonLocation\Lib\site-packages\PyQt5\Qt5\plugins\platforms;platforms" `
-          --hidden-import=PyQt5.QtCore `
-          --hidden-import=PyQt5.QtGui `
-          --hidden-import=PyQt5.QtWidgets `
-          --hidden-import=cv2 `
-          --hidden-import=numpy `
-          --hidden-import=json `
-          --hidden-import=imghdr `
-          --exclude-module=tensorflow `
-          --exclude-module=torch `
-          --collect-all=PyQt5 `
-          main.py
-        if ($LASTEXITCODE -ne 0) {
-          Write-Error "PyInstaller build failed"
-          exit 1
-        }
-    
-    # - name: Build with PyInstaller using spec
+    # - name: Build with PyInstaller
     #   run: |
-    #     pyinstaller annotation_tool.spec
+    #     pyinstaller --name=${{ env.APP_NAME }} `
+    #       --windowed `
+    #       --onefile `
+    #       --add-data="icons;icons" `
+    #       --add-data="config;config" `
+    #       --add-data="modes;modes" `
+    #       --add-data="core;core" `
+    #       --add-data="utils;utils" `
+    #       --add-data="$env:pythonLocation\Lib\site-packages\PyQt5\Qt5\plugins\platforms;platforms" `
+    #       --hidden-import=PyQt5.QtCore `
+    #       --hidden-import=PyQt5.QtGui `
+    #       --hidden-import=PyQt5.QtWidgets `
+    #       --hidden-import=cv2 `
+    #       --hidden-import=numpy `
+    #       --hidden-import=json `
+    #       --hidden-import=imghdr `
+    #       --exclude-module=tensorflow `
+    #       --exclude-module=torch `
+    #       --collect-all=PyQt5 `
+    #       main.py
+    #     if ($LASTEXITCODE -ne 0) {
+    #       Write-Error "PyInstaller build failed"
+    #       exit 1
+    #     }
+    
+    - name: Build with PyInstaller using spec
+      run: |
+        pyinstaller annotation_tool.spec
 
     - name: List dist directory
       run: |
