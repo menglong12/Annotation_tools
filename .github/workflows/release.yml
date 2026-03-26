@@ -10,19 +10,19 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
     inputs:
+      version:
+        description: 'Version number (optional)'
+        required: false
+        default: ''
       version_type:
-        description: 'Version increment type'
-        required: True
+        description: 'Version increment type (if no custom version)'
+        required: false
         default: 'patch'
         type: choice
         options:
           - patch
           - minor
           - major
-      custom_version:
-        description: 'Custom version (e.g., 2.0.0) - overrides increment'
-        required: false
-        default: ''
 
 permissions:
   contents: write
@@ -34,11 +34,75 @@ permissions:
 #   VERSION: 1.0.0
 
 jobs:
+  get-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag_name: ${{ steps.version.outputs.tag_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 获取所有标签历史
+      
+      - name: Get version from tag or generate
+        id: version
+        run: |
+          # 检查是否由 tag 触发
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            # 从 tag 获取版本号
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
+            VERSION="${TAG_NAME#v}"
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+            echo "Using tag version: $VERSION"
+          else
+            # 手动触发时，获取最新版本并递增
+            LATEST_TAG=$(git tag -l "v*" | sort -V | tail -n1)
+            
+            if [ -z "$LATEST_TAG" ]; then
+              BASE_VERSION="1.0.0"
+            else
+              BASE_VERSION=${LATEST_TAG#v}
+            fi
+            
+            # 如果手动指定了版本号
+            if [ -n "${{ github.event.inputs.version }}" ]; then
+              NEW_VERSION="${{ github.event.inputs.version }}"
+            else
+              # 解析版本号并递增
+              MAJOR=$(echo $BASE_VERSION | cut -d. -f1)
+              MINOR=$(echo $BASE_VERSION | cut -d. -f2)
+              PATCH=$(echo $BASE_VERSION | cut -d. -f3)
+              
+              TYPE="${{ github.event.inputs.version_type }}"
+              if [ "$TYPE" == "major" ]; then
+                NEW_VERSION="$((MAJOR + 1)).0.0"
+              elif [ "$TYPE" == "minor" ]; then
+                NEW_VERSION="$MAJOR.$((MINOR + 1)).0"
+              else
+                NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+              fi
+            fi
+            
+            echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+            echo "tag_name=v$NEW_VERSION" >> $GITHUB_OUTPUT
+            echo "Generated version: $NEW_VERSION"
+          fi
+      - name: Create and push tag (for manual trigger)
+        if: github.event_name == 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/')
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag ${{ steps.version.outputs.tag_name }}
+          git push origin ${{ steps.version.outputs.tag_name }}
+          echo "Created and pushed tag: ${{ steps.version.outputs.tag_name }}"
+
   build-windows:
     runs-on: windows-latest
-    needs: bump-version
+    needs: get-version
     env:
-      APP_VERSION: ${{ needs.bump-version.outputs.new_version }}
+      APP_NAME: PetkitAnnotationTool
+      APP_VERSION: ${{ needs.get-version.outputs.version }}
     
     strategy:
       matrix:
@@ -47,6 +111,9 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        fetch-tags: true
     
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
@@ -105,6 +172,18 @@ jobs:
     - name: Build with PyInstaller using spec
       run: |
         pyinstaller annotation_tool.spec
+    
+    - name: Rename executable with version
+      run: |
+        $exePath = "dist/${{ env.APP_NAME }}.exe"
+        $newExePath = "dist/${{ env.APP_NAME }}-v${{ env.APP_VERSION }}.exe"
+        if (Test-Path $exePath) {
+          Move-Item $exePath $newExePath
+          Write-Host "Renamed to: $newExePath"
+        } else {
+          Write-Host "Warning: $exePath not found"
+          Get-ChildItem dist
+        }
 
     - name: List dist directory
       run: |
@@ -113,19 +192,19 @@ jobs:
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: PetkitAnnotationTool-v${{ env.APP_VERSION }}
-        path: dist/PetkitAnnotationTool-v${{ env.APP_VERSION }}.exe
+        name: ${{ env.APP_NAME }}-v${{ env.APP_VERSION }}
+        path: dist/${{ env.APP_NAME }}-v${{ env.APP_VERSION }}.exe
         retention-days: 30
     
     - name: Create Release
       if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v2
       with:
-        files: dist/PetkitAnnotationTool-v${{ env.APP_VERSION }}.exe
+        files: dist/${{ env.APP_NAME }}-v${{ env.APP_VERSION }}.exe
         tag_name: v${{ env.APP_VERSION }}
         name: Release v${{ env.APP_VERSION }}
         body: |
-          ## Petkit Annotation Tool v${{ env.APP_VERSION }}
+          ## ${{ env.APP_NAME }} v${{ env.APP_VERSION }}
           
           ### Windows 可执行文件
           - 下载 `${{ env.APP_NAME }}.exe` 并运行

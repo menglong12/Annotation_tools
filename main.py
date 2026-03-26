@@ -69,10 +69,16 @@ class ModeCard(QWidget):
     def mousePressEvent(self, event):
         self.clicked.emit(self.mode_key)
 
+try:
+    from app_version import APP_VERSION, BUILD_NUMBER
+except ImportError:
+    APP_VERSION = "1.0.0"
+    BUILD_NUMBER = "0"
+
 class ModeSelector(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("小佩标注平台-v1.0.2")
+        self.setWindowTitle(f"小佩标注平台-{APP_VERSION}")
         self.setGeometry(100, 100, 1200, 800)
         self.setWindowIcon(self.get_app_icon())
         self.setup_ui()
