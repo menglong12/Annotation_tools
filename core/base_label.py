@@ -53,6 +53,11 @@ class BaseImageLabel(QLabel):
         self.rect_start = QPoint()
         self.rect_end = QPoint()
         self.pending_click = None
+
+        # 添加矩形框调整状态状态
+        self.resizing_rect = -1 # 正在调整大小的矩形索引
+        self.resize_start = QPoint()
+        self.resize_corner = -1   # 0：右下 1：左下 2：右上 3：左上    
         
         # 视觉样式
         self.setup_visual_style()
@@ -106,6 +111,11 @@ class BaseImageLabel(QLabel):
             return False
         
         frame_idx = max(0, min(frame_idx, self.total_frames - 1))
+
+        # 保存当前帧的标注信息
+        if hasattr(self, 'current_frame_idx') and self.current_frame_idx != frame_idx:
+            self.save_current_annotations()
+
         self.current_frame_idx = frame_idx
         
         self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
@@ -123,8 +133,34 @@ class BaseImageLabel(QLabel):
         
         # 加载该帧的标注
         frame_data = self.video_annotations.get(frame_idx, {})
-        self.points = frame_data.get('points', [])
-        self.rectangles = frame_data.get('rectangles', [])
+        existing_rects = frame_data.get('rectangles', [])
+        existing_points = frame_data.get('points', [])
+
+        # 如果当前帧没有标注，且是下一帧（非第一帧），则复制上一帧的标注
+        if frame_idx > 0:
+            prev_frame_data = self.video_annotations.get(frame_idx - 1, {})
+            prev_points = prev_frame_data.get('points', [])
+            prev_rects = prev_frame_data.get('rectangles', [])
+            # 复制点（深拷贝）
+            if not existing_points and prev_points:
+                self.points = []
+                for point in prev_points:
+                    self.points.append(point.copy())
+                self.status_message.emit(f"已从第 {frame_idx} 帧复制 {len(self.points)} 个关键点")
+            else:
+                self.points = existing_points.copy() if existing_points else []
+            
+            # 复制矩形框（深拷贝）
+            if not existing_rects and prev_rects:
+                self.rectangles = []
+                for rect in prev_rects:
+                    self.rectangles.append(rect.copy())
+                self.status_message.emit(f"已从第 {frame_idx} 帧复制 {len(self.rectangles)} 个矩形框")
+            else:
+                self.rectangles = existing_rects.copy() if existing_rects else []
+        else:
+            self.points = existing_points.copy() if existing_points else []
+            self.rectangles = existing_rects.copy() if existing_rects else []
         
         self.update_next_point_hint()
         self.update_display()
@@ -359,6 +395,70 @@ class BaseImageLabel(QLabel):
         x = self.scaled_rect.x() + orig_pos.x() * self.scaled_rect.width() / self.pixmap.width()
         y = self.scaled_rect.y() + orig_pos.y() * self.scaled_rect.height() / self.pixmap.height()
         return QPoint(int(x), int(y))
+
+    def find_rect_resize_handle(self, screen_pos):
+        '''查找矩形框的调整手柄'''
+        if not self.pixmap or self.scaled_rect.isEmpty():
+            return -1, -1
+
+        # 手柄检测阈值（像素）
+        handle_size = 8
+        
+        for i, rect in enumerate(self.rectangles):
+            x1 = self.scaled_rect.x() + rect['x'] * self.scaled_rect.width() / self.pixmap.width()
+            y1 = self.scaled_rect.y() + rect['y'] * self.scaled_rect.height() / self.pixmap.height()
+            x2 = x1 + rect['w'] * self.scaled_rect.width() / self.pixmap.width()
+            y2 = y1 + rect['h'] * self.scaled_rect.height() / self.pixmap.height()
+
+            # 检查四个角
+            corners = [
+                (x2, y2, 0),    # 右下角
+                (x1, y2, 1),    # 左下角
+                (x2, y1, 2),    # 右上角
+                (x1, y1, 3),    # 左上角
+            ]
+
+            for cx, cy, corner in corners:
+                if abs(screen_pos.x() - cx) < handle_size and abs(screen_pos.y() - cy) < handle_size:
+                    return i, corner
+        return -1, -1
+    
+    def update_rectangle_size(self, rect_index, orig_pos, corner):
+        """更新矩形框大小"""
+        if rect_index >= len(self.rectangles):
+            return
+        
+        rect = self.rectangles[rect_index]
+        old_x = rect['x']
+        old_y = rect['y']
+        old_w = rect['w']
+        old_h = rect['h']
+        
+        # 根据拖动的角调整大小
+        if corner == 0:  # 右下角
+            new_w = max(10, orig_pos.x() - old_x)
+            new_h = max(10, orig_pos.y() - old_y)
+            rect['w'] = new_w
+            rect['h'] = new_h
+        elif corner == 1:  # 左下角
+            new_w = max(10, old_x + old_w - orig_pos.x())
+            new_h = max(10, orig_pos.y() - old_y)
+            rect['x'] = orig_pos.x()
+            rect['w'] = new_w
+            rect['h'] = new_h
+        elif corner == 2:  # 右上角
+            new_w = max(10, orig_pos.x() - old_x)
+            new_h = max(10, old_y + old_h - orig_pos.y())
+            rect['w'] = new_w
+            rect['y'] = orig_pos.y()
+            rect['h'] = new_h
+        elif corner == 3:  # 左上角
+            new_w = max(10, old_x + old_w - orig_pos.x())
+            new_h = max(10, old_y + old_h - orig_pos.y())
+            rect['x'] = orig_pos.x()
+            rect['w'] = new_w
+            rect['y'] = orig_pos.y()
+            rect['h'] = new_h
     
     # ============== 事件处理 ==============
     def mousePressEvent(self, event):
@@ -369,6 +469,15 @@ class BaseImageLabel(QLabel):
             return
         
         if event.button() == Qt.LeftButton:
+            # 检查是否点击在矩形框的调整手柄上
+            rect_idx, corner = self.find_rect_resize_handle(event.pos())
+            if rect_idx != -1:
+                self.resizing_rect = rect_idx
+                self.resize_corner = corner
+                self.resize_start = self.screen_to_original(event.pos())
+                self.setCursor(QCursor(Qt.SizeFDiagCursor))
+                return
+
             # 检查是否点击在点上
             idx = self.find_point_at(event.pos())
             if idx != -1:
@@ -380,6 +489,7 @@ class BaseImageLabel(QLabel):
             if idx != -1:
                 self.drag_rect_index = idx
                 self.drag_start = event.pos()
+                self.setCursor(QCursor(Qt.SizeAllCursor))
                 return
             
             # 开始绘制矩形
@@ -391,8 +501,18 @@ class BaseImageLabel(QLabel):
                     self.rect_end = orig_pos
         
         if event.button() == Qt.RightButton:
-            self.pending_click = event.pos()
-            self.show_type_menu(event.globalPos())
+            if hasattr(self, 'add_kps_point_direct'):
+                # 检查是否点击在点上
+                idx = self.find_point_at(event.pos())
+                if idx != -1:
+                    self.drag_point_index = idx
+                    return
+                # 直接添加蓝色点
+                self.add_kps_point_direct(event.pos(), 'blue')
+            else:
+                # 其他模式：弹出菜单
+                self.pending_click = event.pos()
+                self.show_type_menu(event.globalPos())
     
     def mouseMoveEvent(self, event):
         self.current_point = event.pos()
@@ -404,6 +524,13 @@ class BaseImageLabel(QLabel):
             self.update_display()
             return
         
+        if self.resizing_rect != -1:
+            orig_pos = self.screen_to_original(event.pos())
+            if orig_pos:
+                self.update_rectangle_size(self.resizing_rect, orig_pos, self.resize_corner)
+                self.update_display()
+            return
+
         if self.drag_point_index != -1:
             orig_pos = self.screen_to_original(event.pos())
             if orig_pos:
@@ -428,7 +555,18 @@ class BaseImageLabel(QLabel):
                 self.rect_end = orig_pos
                 self.update_display()
             return
-        
+
+        # 更新光标形状
+        rect_idx, corner = self.find_rect_resize_handle(event.pos())
+        if rect_idx != -1:
+            self.setCursor(QCursor(Qt.SizeFDiagCursor))
+        elif self.find_rect_at(event.pos()) != -1:
+            self.setCursor(QCursor(Qt.SizeAllCursor))
+        elif self.find_point_at(event.pos()) != -1:
+            self.setCursor(QCursor(Qt.OpenHandCursor))
+        else:
+            self.setCursor(QCursor(Qt.ArrowCursor))
+            
         self.update_display()
     
     def mouseReleaseEvent(self, event):
@@ -436,12 +574,21 @@ class BaseImageLabel(QLabel):
             self.panning = False
             self.setCursor(QCursor(Qt.ArrowCursor))
             return
-        
+
+        if self.resizing_rect != -1:
+            self.resizing_rect = -1
+            self.resize_corner = -1
+            self.setCursor(QCursor(Qt.ArrowCursor))
+            return
+
         if self.drag_point_index != -1:
             self.drag_point_index = -1
+            return
         
         if self.drag_rect_index != -1:
             self.drag_rect_index = -1
+            self.setCursor(QCursor(Qt.ArrowCursor))
+            return
         
         if self.drawing_rect:
             self.drawing_rect = False

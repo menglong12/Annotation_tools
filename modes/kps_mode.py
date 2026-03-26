@@ -2,7 +2,7 @@
 import os
 import json
 from PyQt5.QtWidgets import QMenu, QMessageBox
-from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPen
+from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPen, QCursor
 from PyQt5.QtCore import Qt, QPoint, QRectF, QPointF
 from core.base_label import BaseImageLabel
 
@@ -30,6 +30,24 @@ class KpsImageLabel(BaseImageLabel):
         "右后腿": [16, 17, 18],
         "尾巴": [19, 20]
     }
+
+    # 定义骨骼连接（索引对）
+    BONE_CONNECTIONS = [
+        # 头部
+        (0, 2), (1, 2), (2, 3), (0, 4), (1, 5), (3, 6),
+        # 左前腿
+        (7, 8), (8, 9),
+        # 右前腿
+        (10, 11), (11, 12),
+        # 左后腿
+        (13, 14), (14, 15), (13, 19),
+        # 右后腿
+        (16, 17), (17, 18), (16, 19),
+        # 身体
+        (6, 7), (6, 10), (6, 13), (6, 16),
+        # 尾巴
+        (19, 20), (6, 19)
+    ]
     
     def __init__(self, parent=None, mode_config=None):
         super().__init__(parent, mode_config)
@@ -55,6 +73,17 @@ class KpsImageLabel(BaseImageLabel):
         else:
             group = self.KPS_GROUPS.get(list(self.KPS_GROUPS.keys())[self.show_group], [])
             visible_indices = [i for i in range(len(self.points)) if i in group]
+        
+        if len(self.points) >= 2:
+            painter.setPen(QPen(QColor(100, 200, 100, 150), 2)) # 半透明绿色线条
+            for start_idx, end_idx in self.BONE_CONNECTIONS:
+                if start_idx < len(self.points) and end_idx < len(self.points):
+                    start_point = self.points[start_idx]
+                    end_point = self.points[end_idx]
+                    start_screen = self.original_to_screen(QPoint(start_point['x'], start_point['y']))
+                    end_screen = self.original_to_screen(QPoint(end_point['x'], end_point['y']))
+                    if start_screen and end_screen:
+                        painter.drawLine(start_screen, end_screen)
         
         for i in range(len(self.points)):
             if i not in visible_indices:
@@ -89,6 +118,19 @@ class KpsImageLabel(BaseImageLabel):
             painter.setPen(QPen(QColor(50, 205, 50), 2))
             painter.setBrush(Qt.NoBrush)
             painter.drawRect(QRectF(QPointF(x1, y1), QPointF(x2, y2)))
+
+            # 绘制四个角的调整手柄
+            painter.setBrush(QColor(255, 255, 255))
+            painter.setPen(QPen(QColor(0, 0, 0), 1))
+            handle_size = 8
+            # 右下角
+            painter.drawRect(int(x2 - handle_size/2), int(y2 - handle_size/2), handle_size, handle_size)
+            # 左下角
+            painter.drawRect(int(x1 - handle_size/2), int(y2 - handle_size/2), handle_size, handle_size)
+            # 右上角
+            painter.drawRect(int(x2 - handle_size/2), int(y1 - handle_size/2), handle_size, handle_size)
+            # 左上角
+            painter.drawRect(int(x1 - handle_size/2), int(y1 - handle_size/2), handle_size, handle_size)
         
         # 在图像顶部绘制提示信息
         next_idx = len(self.points)
@@ -150,28 +192,61 @@ class KpsImageLabel(BaseImageLabel):
         else:
             self.status_message.emit(f"✅ 所有关键点已完成！共 {len(self.type_names)} 个点")
     
+    def add_kps_point_direct(self, screen_pos, color):
+        """直接添加关键点（不弹出菜单）"""
+        orig_pos = self.screen_to_original(screen_pos)
+        if not orig_pos:
+            return
+        
+        if len(self.points) >= len(self.type_names):
+            QMessageBox.warning(self, "提示", f"最多只能标注 {len(self.type_names)} 个关键点")
+            return
+        
+        next_idx = len(self.points)
+        next_name = self.type_names[next_idx]
+        
+        self.points.append({
+            'i': self.next_id,
+            'x': orig_pos.x(),
+            'y': orig_pos.y(),
+            'type': next_name,
+            'type_index': next_idx,
+            'color': color
+        })
+        self.next_id += 1
+        
+        # 更新提示
+        self.update_next_point_hint()
+        self.update_display()
+        self.annotation_changed.emit()
+        
+        # 显示添加成功的消息
+        color_name = "红色(可见)" if color == 'red' else "蓝色(遮挡)"
+        self.status_message.emit(f"✓ 已添加 {next_name} ({color_name}) ({len(self.points)}/{len(self.type_names)})")
+
     def show_type_menu(self, global_pos):
         """右键：选择颜色"""
-        menu = QMenu(self)
-        menu.setTitle("选择关键点颜色")
+        pass
+        # menu = QMenu(self)
+        # menu.setTitle("选择关键点颜色")
         
-        # 显示当前要标注的点
-        next_idx = len(self.points)
-        if next_idx < len(self.type_names):
-            next_name = self.type_names[next_idx]
-            menu.setTitle(f"添加: {next_name} (第{next_idx+1}/{len(self.type_names)}点)")
+        # # 显示当前要标注的点
+        # next_idx = len(self.points)
+        # if next_idx < len(self.type_names):
+        #     next_name = self.type_names[next_idx]
+        #     menu.setTitle(f"添加: {next_name} (第{next_idx+1}/{len(self.type_names)}点)")
         
-        red_action = menu.addAction("🔴 红色 (左键)")
-        red_action.setData('red')
+        # red_action = menu.addAction("🔴 红色 (左键)")
+        # red_action.setData('red')
         
-        blue_action = menu.addAction("🔵 蓝色 (右键)")
-        blue_action.setData('blue')
+        # blue_action = menu.addAction("🔵 蓝色 (右键)")
+        # blue_action.setData('blue')
         
-        action = menu.exec_(global_pos)
-        if action and self.pending_click:
-            color = action.data()
-            self.add_kps_point(self.pending_click, color)
-            self.pending_click = None
+        # action = menu.exec_(global_pos)
+        # if action and self.pending_click:
+        #     color = action.data()
+        #     self.add_kps_point(self.pending_click, color)
+        #     self.pending_click = None
     
     def add_kps_point(self, screen_pos, color):
         """添加关键点"""
@@ -271,6 +346,149 @@ class KpsImageLabel(BaseImageLabel):
             return True
         return False
     
+    def mousePressEvent(self, event):
+        if event.modifiers() == Qt.ControlModifier and event.button() == Qt.LeftButton:
+            self.panning = True
+            self.pan_start = event.pos()
+            self.setCursor(QCursor(Qt.ClosedHandCursor))
+            return
+        
+        if event.button() == Qt.LeftButton:
+            # 检查是否点击在矩形框的调整手柄上
+            rect_idx, corner = self.find_rect_resize_handle(event.pos())
+            if rect_idx != -1:
+                self.resizing_rect = rect_idx
+                self.resize_corner = corner
+                self.resize_start = self.screen_to_original(event.pos())
+                self.setCursor(QCursor(Qt.SizeFDiagCursor))
+                return
+
+            # 检查是否点击在点上
+            idx = self.find_point_at(event.pos())
+            if idx != -1:
+                self.drag_point_index = idx
+                return
+            
+            # 检查是否点击在矩形上
+            idx = self.find_rect_at(event.pos())
+            if idx != -1:
+                self.drag_rect_index = idx
+                self.drag_start = self.screen_to_original(event.pos())
+                self.setCursor(QCursor(Qt.SizeAllCursor))
+                return
+            
+            # 开始绘制矩形
+            if self.mode_config.get('support_rectangle', False):
+                orig_pos = self.screen_to_original(event.pos())
+                if orig_pos:
+                    self.drawing_rect = True
+                    self.rect_start = orig_pos
+                    self.rect_end = orig_pos
+
+        if event.button() == Qt.RightButton:
+            # self.pending_click = event.pos()
+            # self.show_type_menu(event.globalPos())
+            # 检查是否点击在点上
+            idx = self.find_point_at(event.pos())
+            if idx != -1:
+                self.drag_point_index = idx
+                return
+            
+            # 直接添加蓝色点
+            self.add_kps_point_direct(event.pos(), 'blue')
+    
+    def mouseMoveEvent(self, event):
+        self.current_point = event.pos()
+
+        if self.panning:
+            delta = event.pos() - self.pan_start
+            self.pan_offset += delta
+            self.pan_start = event.pos()
+            self.update_display()
+            return
+        
+        # 调整矩形框大小
+        if self.resizing_rect != -1:
+            orig_pos = self.screen_to_original(event.pos())
+            if orig_pos:
+                self.update_rectangle_size(self.resizing_rect, orig_pos, self.resize_corner)
+                self.update_display()
+            return
+    
+        # 拖动关键点
+        if self.drag_point_index != -1:
+            orig_pos = self.screen_to_original(event.pos())
+            if orig_pos:
+                self.update_point_position(self.drag_point_index, orig_pos)
+            return
+        
+        # 拖动矩形框
+        if self.drag_rect_index != -1:
+            orig_pos = self.screen_to_original(event.pos())
+            if orig_pos:
+                rect = self.rectangles[self.drag_rect_index]
+                delta_x = orig_pos.x() - self.drag_start.x()
+                delta_y = orig_pos.y() - self.drag_start.y()
+                rect['x'] += delta_x
+                rect['y'] += delta_y
+                self.drag_start = orig_pos
+                self.update_display()
+            return
+        
+        # 绘制矩形中
+        if self.drawing_rect:
+            orig_pos = self.screen_to_original(event.pos())
+            if orig_pos:
+                self.rect_end = orig_pos
+                self.update_display()
+            return
+        
+        # 更新光标形状
+        rect_idx, corner = self.find_rect_resize_handle(event.pos())
+        if rect_idx != -1:
+            self.setCursor(QCursor(Qt.SizeFDiagCursor))
+        elif self.find_rect_at(event.pos()) != -1:
+            self.setCursor(QCursor(Qt.SizeAllCursor))
+        elif self.find_point_at(event.pos()) != -1:
+            self.setCursor(QCursor(Qt.OpenHandCursor))
+        else:
+            self.setCursor(QCursor(Qt.ArrowCursor))
+        
+        self.update_display()
+
+    def mouseReleaseEvent(self, event):
+        if self.panning:
+            self.panning = False
+            self.setCursor(QCursor(Qt.ArrowCursor))
+            return
+        
+        if self.resizing_rect != -1:
+            self.resizing_rect = -1
+            self.resize_corner = -1
+            self.setCursor(QCursor(Qt.ArrowCursor))
+            return
+        
+        if self.drag_point_index != -1:
+            self.drag_point_index = -1
+            return
+        
+        if self.drag_rect_index != -1:
+            self.drag_rect_index = -1
+            self.setCursor(QCursor(Qt.ArrowCursor))
+            return
+        
+        if self.drawing_rect:
+            self.drawing_rect = False
+            w = abs(self.rect_end.x() - self.rect_start.x())
+            h = abs(self.rect_end.y() - self.rect_start.y())
+            
+            if w > 5 and h > 5:
+                self.show_rect_type_menu()
+            else:
+                self.add_point_annotation(self.rect_start)
+        
+        self.update_display()
+
     def mouseDoubleClickEvent(self, event):
         """双击切换颜色"""
         idx = self.find_point_at(event.pos())
